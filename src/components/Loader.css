@@ -1,0 +1,34 @@
+.loader-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  overflow: hidden;
+  background: var(--bs-primary-bg-subtle);
+  z-index: 1;
+}
+
+.loader-bar__runner {
+  width: 30%;
+  height: 100%;
+  background: var(--bs-primary);
+  animation: loader-run 1.2s ease-in-out infinite;
+}
+
+@keyframes loader-run {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(350%); }
+}
+
+/* Для «уменьшения движения» в системе: вместо бегущей полосы — пульсация на всю ширину */
+@keyframes loader-pulse {
+  50% { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader-bar__runner {
+    width: 100%;
+    animation: loader-pulse 1.5s ease-in-out infinite;
+  }
+}
