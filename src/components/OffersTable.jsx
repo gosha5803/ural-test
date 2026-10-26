@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { STATUS, selectOffers, selectOffersError, selectOffersGoods, selectOfferAnalogues } from '../store/partsSlice'
 import LoaderBar, { Spinner } from './Loader'
@@ -69,7 +69,9 @@ function SortableTh({ sortKey, sort, onSort, children }) {
   )
 }
 
-function OfferRow({ item, isOriginal, expanded, onToggle }) {
+// memo: когда в таблице меняется состояние открытой строки, нужно перерисовать максимум две одну закрыть и 1 открыть
+// Но так как родитель ререндерится, то дочерний компонент надо обернут в memo
+const OfferRow = memo(function OfferRow({ item, isOriginal, expanded, onToggle }) {
   const offer = bestOffer(item.warehouses)
   // Невозвратным бывает сам товар или конкретное предложение склада — важно то, чью цену показываем
   const notRefund = item.notRefund || offer?.notRefund
@@ -80,7 +82,7 @@ function OfferRow({ item, isOriginal, expanded, onToggle }) {
     <>
       <tr
         className={`${isOriginal ? 'table-primary' : ''} ${expandable ? 'offers-row-expandable' : ''}`}
-        onClick={expandable ? onToggle : undefined}
+        onClick={expandable ? () => onToggle(item.goodsID) : undefined}
       >
         <td>
           <div className="d-flex">
@@ -130,7 +132,7 @@ function OfferRow({ item, isOriginal, expanded, onToggle }) {
       )}
     </>
   )
-}
+})
 
 export default function OffersTable() {
   const { status } = useSelector(selectOffers)
@@ -149,11 +151,14 @@ export default function OffersTable() {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0
   }, [originals, sortedAnalogues])
-
+  
   // Другой бренд — сворачиваем раскрытую строку
   useEffect(() => {
     setExpandedId(null)
   }, [originals])
+
+  // Стабильная ссылка — иначе memo у OfferRow бесполезен
+  const handleToggle = useCallback((id) => setExpandedId((prev) => (prev === id ? null : id)), [])
 
   if (status === STATUS.idle) return null
 
@@ -163,14 +168,13 @@ export default function OffersTable() {
   if (loading && !totalLength) return <Spinner text="Загружаем предложения…" />
 
   const handleSort = (key) => setSort((prev) => nextSort(prev, key))
-  const handleToggle = (id) => setExpandedId((prev) => (prev === id ? null : id))
   const renderRow = (item, isOriginal) => (
     <OfferRow
       key={item.goodsID}
       item={item}
       isOriginal={isOriginal}
       expanded={item.goodsID === expandedId}
-      onToggle={() => handleToggle(item.goodsID)}
+      onToggle={handleToggle}
     />
   )
 
