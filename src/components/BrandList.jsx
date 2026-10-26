@@ -35,6 +35,7 @@ export default function BrandList() {
 
   return (
     <div className="d-flex flex-wrap justify-content-center align-items-center gap-2">
+      <span className="text-secondary">Производители:</span>
       {brands.map((brand) => (
         <button
           key={brand}

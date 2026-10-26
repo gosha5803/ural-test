@@ -5,22 +5,27 @@ import LoaderBar, { Spinner } from './Loader'
 import ErrorAlert from './ErrorAlert'
 import './OffersTable.css'
 
-// Цена — минимум по складам с остатком; верхнеуровневый price API просит не использовать
-const minPrice = (warehouses = []) => {
-  const prices = warehouses.filter((w) => w.stock > 0).map((w) => w.price)
-  return prices.length ? Math.min(...prices) : null
-}
+// Показываемое предложение — самый дешёвый склад с остатком (при равной цене — возвратное).
+// Верхнеуровневый price API просит не использовать
+const bestOffer = (warehouses = []) =>
+  warehouses
+    .filter((w) => w.stock > 0)
+    .reduce(
+      (best, w) =>
+        !best || w.price < best.price || (w.price === best.price && best.notRefund && !w.notRefund)
+          ? w
+          : best,
+      null,
+    )
 
 // TODO: вынести один Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }) на уровень модуля,
 // чтобы не собирать форматтер заново на каждую ячейку
 const formatPrice = (price) =>
-  price === null
-    ? '—'
-    : `${price.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`
+  `${price.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`
 
 // Колонки, по которым можно сортировать: ключ → значение строки
 const SORT_GETTERS = {
-  price: (item) => minPrice(item.warehouses),
+  price: (item) => bestOffer(item.warehouses)?.price ?? null,
   count: (item) => item.count,
 }
 
@@ -68,18 +73,28 @@ function SortableTh({ sortKey, sort, onSort, children }) {
 }
 
 function OfferRow({ item, isOriginal }) {
+  const offer = bestOffer(item.warehouses)
+  // Невозвратным бывает сам товар или конкретное предложение склада — важно то, чью цену показываем
+  const notRefund = item.notRefund || offer?.notRefund
+
   return (
     <tr className={isOriginal ? 'table-primary' : undefined}>
       <td>
         <div className="fw-semibold">
           {item.name || '—'}
           {isOriginal && <span className="badge text-bg-primary ms-2">Искомый артикул</span>}
+          {notRefund && (
+            <span className="badge text-bg-warning ms-2" title="Нельзя вернуть по причине «Отказ»">
+              Невозвратный
+            </span>
+          )}
         </div>
         <small className="text-secondary">
           {item.brand} · {item.number}
         </small>
       </td>
-      <td className="text-end text-nowrap">{formatPrice(minPrice(item.warehouses))}</td>
+      {/* Цена — минимальная по складам, остаток — суммарный, поэтому «от» */}
+      <td className="text-end text-nowrap">{offer ? `от ${formatPrice(offer.price)}` : '—'}</td>
       <td className="text-end">{item.count}</td>
     </tr>
   )
