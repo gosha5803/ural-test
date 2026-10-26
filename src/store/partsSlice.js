@@ -38,7 +38,8 @@ export const searchBrands = createAsyncThunk('parts/searchBrands', (number) =>
 )
 
 export const fetchOffers = createAsyncThunk('parts/fetchOffers', (brand, { getState }) =>
-  fetchGoods({ number: getState().parts.number, brand, analogues: 'on' }),
+  // info=on — API добавляет признак невозвратности notRefund
+  fetchGoods({ number: getState().parts.number, brand, analogues: 'on', info: 'on' }),
 )
 
 export const STATUS = Object.freeze({
