@@ -4,7 +4,8 @@ import { API_URL, API_KEY } from '../config'
 // API на «не найдено» отвечает массивом с одной пустой позицией (goodsID из нулей)
 const isEmptyGoods = (goods) => goods.length === 1 && /^[0-]*$/.test(goods[0].goodsID ?? '')
 
-// Обычная функция: запрос + проверка ответа. Возвращает goods ([] — ничего не найдено) или бросает Error
+// Обычная функция: запрос + проверка ответа. Возвращает goods ([] — ничего не найдено) или бросает Error.
+// В message — исходный текст ошибки API или технический код, без перевода: тексты для пользователя — в селекторах
 async function fetchGoods(params) {
   const query = Object.entries({ key: API_KEY, ...params })
     .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
@@ -14,7 +15,7 @@ async function fetchGoods(params) {
   try {
     res = await fetch(`${API_URL}?${query}`)
   } catch {
-    throw new Error('Ошибка сети: не удалось связаться с сервером')
+    throw new Error('NETWORK_ERROR')
   }
   // Ошибки API приходят как {"error": ...}, в т.ч. с не-2xx статусом — сначала читаем тело
   let data = null
@@ -24,10 +25,11 @@ async function fetchGoods(params) {
     // тело не JSON — решаем ниже по статусу
   }
   if (data?.error) {
-    throw new Error(Array.isArray(data.error) ? data.error.join(', ') : data.error)
+    // По документации ошибок может быть несколько; createAsyncThunk сохраняет только строку message — склеиваем через \n
+    throw new Error((Array.isArray(data.error) ? data.error : [data.error]).join('\n'))
   }
-  if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`)
-  if (!Array.isArray(data?.goods)) throw new Error('Некорректный ответ сервера')
+  if (!res.ok) throw new Error(`HTTP_${res.status}`)
+  if (!Array.isArray(data?.goods)) throw new Error('INVALID_RESPONSE')
 
   return isEmptyGoods(data.goods) ? [] : data.goods
 }
@@ -104,10 +106,34 @@ const partsSlice = createSlice({
   },
 })
 
+// Исходная ошибка (текст API или код из fetchGoods) → текст для пользователя
+const ERROR_MESSAGES = {
+  NETWORK_ERROR: 'Ошибка сети: не удалось связаться с сервером',
+  INVALID_RESPONSE: 'Некорректный ответ сервера',
+  'Empty key!': 'Не указан ключ доступа к сервису',
+  'Invalid key client!': 'Неверный ключ доступа к сервису',
+  'The API key provided is invalid or has been revoked': 'Ключ доступа к сервису недействителен или отозван',
+  'Empty number goods!': 'Не указан артикул',
+  'Request quota exceeded!': 'Превышен лимит запросов по грузовому ассортименту, попробуйте позже',
+}
+
+// Неизвестную ошибку не показываем по-английски; исходный текст остаётся в сторе (видно в Redux DevTools)
+const translateError = (raw) => {
+  if (ERROR_MESSAGES[raw]) return ERROR_MESSAGES[raw]
+  if (raw.startsWith('HTTP_')) return `Ошибка сервера: ${raw.slice(5)}`
+  return 'Сервис вернул ошибку, попробуйте позже'
+}
+
+// Несколько ошибок приходят через \n — переводим каждую и убираем повторы
+const toUserMessage = (raw) => (raw ? [...new Set(raw.split('\n').map(translateError))].join('. ') : null)
+
 export const selectSearch = (state) => state.parts.search
 export const selectOffers = (state) => state.parts.offers
 export const selectSelectedBrand = (state) => state.parts.selectedBrand
 export const selectIsSearching = (state) => state.parts.search.status === STATUS.loading
+// Строка сравнивается по значению — мемоизация не нужна
+export const selectSearchError = (state) => toUserMessage(state.parts.search.error)
+export const selectOffersError = (state) => toUserMessage(state.parts.offers.error)
 
 export const selectSearchGoods = (state) => state.parts.search.goods
 export const selectOffersGoods = (state) => state.parts.offers.goods

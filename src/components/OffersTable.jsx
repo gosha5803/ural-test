@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
-import { STATUS, selectOffers, selectOffersGoods, selectOfferAnalogues } from '../store/partsSlice'
+import { STATUS, selectOffers, selectOffersError, selectOffersGoods, selectOfferAnalogues } from '../store/partsSlice'
 import LoaderBar, { Spinner } from './Loader'
 import ErrorAlert from './ErrorAlert'
+import WarehouseList from './WarehouseList'
+import { formatPrice } from '../utils/format'
 import './OffersTable.css'
 
 // Показываемое предложение — самый дешёвый склад с остатком (при равной цене — возвратное).
@@ -17,11 +19,6 @@ const bestOffer = (warehouses = []) =>
           : best,
       null,
     )
-
-// TODO: вынести один Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }) на уровень модуля,
-// чтобы не собирать форматтер заново на каждую ячейку
-const formatPrice = (price) =>
-  `${price.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`
 
 // Колонки, по которым можно сортировать: ключ → значение строки
 const SORT_GETTERS = {
@@ -72,39 +69,77 @@ function SortableTh({ sortKey, sort, onSort, children }) {
   )
 }
 
-function OfferRow({ item, isOriginal }) {
+function OfferRow({ item, isOriginal, expanded, onToggle }) {
   const offer = bestOffer(item.warehouses)
   // Невозвратным бывает сам товар или конкретное предложение склада — важно то, чью цену показываем
   const notRefund = item.notRefund || offer?.notRefund
+  // Раскрывать есть что, только если товар есть хотя бы на одном складе
+  const expandable = Boolean(offer)
 
   return (
-    <tr className={isOriginal ? 'table-primary' : undefined}>
-      <td>
-        <div className="fw-semibold">
-          {item.name || '—'}
-          {isOriginal && <span className="badge text-bg-primary ms-2">Искомый артикул</span>}
-          {notRefund && (
-            <span className="badge text-bg-warning ms-2" title="Нельзя вернуть по причине «Отказ»">
-              Невозвратный
-            </span>
-          )}
-        </div>
-        <small className="text-secondary">
-          {item.brand} · {item.number}
-        </small>
-      </td>
-      {/* Цена — минимальная по складам, остаток — суммарный, поэтому «от» */}
-      <td className="text-end text-nowrap">{offer ? `от ${formatPrice(offer.price)}` : '—'}</td>
-      <td className="text-end">{item.count}</td>
-    </tr>
+    <>
+      <tr
+        className={`${isOriginal ? 'table-primary' : ''} ${expandable ? 'offers-row-expandable' : ''}`}
+        onClick={expandable ? onToggle : undefined}
+      >
+        <td>
+          <div className="d-flex">
+            {/* Клик по кнопке всплывает до строки — отдельный обработчик не нужен, кнопка даёт фокус и aria */}
+            {expandable ? (
+              <button
+                type="button"
+                className="offers-toggle btn btn-link p-0 text-reset text-decoration-none"
+                aria-expanded={expanded}
+                aria-label="Склады"
+              >
+                {expanded ? '▾' : '▸'}
+              </button>
+            ) : (
+              <span className="offers-toggle" />
+            )}
+            <div>
+              <div className="fw-semibold">
+                {item.name || '—'}
+                {isOriginal && <span className="badge text-bg-primary ms-2">Искомый артикул</span>}
+                {notRefund && (
+                  <span className="badge text-bg-warning ms-2" title="Нельзя вернуть по причине «Отказ»">
+                    Невозвратный
+                  </span>
+                )}
+              </div>
+              {/* Производитель — атрибут, а не статус: нейтральный серый, чтобы не спорить с цветными бейджами */}
+              <small className="text-secondary">
+                <span className="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle">
+                  {item.brand}
+                </span>{' '}
+                {item.number}
+              </small>
+            </div>
+          </div>
+        </td>
+        {/* Цена — минимальная по складам, остаток — суммарный, поэтому «от» */}
+        <td className="text-end text-nowrap">{offer ? `от ${formatPrice(offer.price)}` : '—'}</td>
+        <td className="text-end">{item.count}</td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={3} className="offers-details">
+            <WarehouseList warehouses={item.warehouses} bestId={offer.id} />
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
 
 export default function OffersTable() {
-  const { status, error } = useSelector(selectOffers)
+  const { status } = useSelector(selectOffers)
+  const error = useSelector(selectOffersError)
   const originals = useSelector(selectOffersGoods)
   const analogues = useSelector(selectOfferAnalogues)
   const [sort, setSort] = useState(NO_SORT)
+  // Раскрыта не более одной строки; храним goodsID, чтобы раскрытие переезжало вместе со строкой при сортировке
+  const [expandedId, setExpandedId] = useState(null)
   const scrollRef = useRef(null)
 
   // Исходные позиции закреплены сверху, сортируются только аналоги
@@ -115,6 +150,11 @@ export default function OffersTable() {
     if (scrollRef.current) scrollRef.current.scrollTop = 0
   }, [originals, sortedAnalogues])
 
+  // Другой бренд — сворачиваем раскрытую строку
+  useEffect(() => {
+    setExpandedId(null)
+  }, [originals])
+
   if (status === STATUS.idle) return null
 
   const loading = status === STATUS.loading
@@ -123,6 +163,16 @@ export default function OffersTable() {
   if (loading && !totalLength) return <Spinner text="Загружаем предложения…" />
 
   const handleSort = (key) => setSort((prev) => nextSort(prev, key))
+  const handleToggle = (id) => setExpandedId((prev) => (prev === id ? null : id))
+  const renderRow = (item, isOriginal) => (
+    <OfferRow
+      key={item.goodsID}
+      item={item}
+      isOriginal={isOriginal}
+      expanded={item.goodsID === expandedId}
+      onToggle={() => handleToggle(item.goodsID)}
+    />
+  )
 
   return (
     // Забирает остаток высоты App; min-height: 0 — чтобы flex-элемент мог быть ниже своего содержимого
@@ -149,12 +199,8 @@ export default function OffersTable() {
                 </tr>
               </thead>
               <tbody>
-                {originals.map((item) => (
-                  <OfferRow key={item.goodsID} item={item} isOriginal />
-                ))}
-                {sortedAnalogues.map((item) => (
-                  <OfferRow key={item.goodsID} item={item} />
-                ))}
+                {originals.map((item) => renderRow(item, true))}
+                {sortedAnalogues.map((item) => renderRow(item, false))}
               </tbody>
             </table>
           </div>

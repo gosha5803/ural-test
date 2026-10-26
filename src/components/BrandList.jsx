@@ -3,6 +3,7 @@ import {
   STATUS,
   fetchOffers,
   selectSearch,
+  selectSearchError,
   selectBrands,
   selectSelectedBrand,
 } from '../store/partsSlice'
@@ -13,7 +14,8 @@ const Hint = ({ children }) => <div className="alert alert-light text-center mb-
 
 export default function BrandList() {
   const dispatch = useDispatch()
-  const { status, error } = useSelector(selectSearch)
+  const { status } = useSelector(selectSearch)
+  const error = useSelector(selectSearchError)
   const brands = useSelector(selectBrands)
   const selectedBrand = useSelector(selectSelectedBrand)
 
